@@ -122,6 +122,55 @@
 		return el;
 	}
 
+	function decorateLegalityBuckets(editor, search) {
+		if (!search || !search.typedSearch || editor.format !== FORMAT_ID) return;
+		var type = search.typedSearch.searchType;
+		if (type !== 'move' && type !== 'ability') return;
+
+		var label = type === 'move' ? 'Illegal moves (allowed)' : 'Illegal abilities (allowed)';
+		var results = search.results || [];
+		for (var i = 0; i < results.length; i++) {
+			if (results[i][0] === 'header' && results[i][1] === 'Illegal results') {
+				results[i][1] = label;
+				return;
+			}
+		}
+
+		// Typed text searches already mark illegal matches individually. The extra
+		// bucket is for the normal browsing view so legal options stay first.
+		if (search.query) return;
+		var illegal = search.typedSearch.baseIllegalResults;
+		if (!illegal || !illegal.length) return;
+
+		var illegalResults = illegal.slice();
+		if (search.sortCol && typeof search.typedSearch.sort === 'function') {
+			illegalResults = illegalResults.filter(function (row) { return row[0] === type; });
+			illegalResults = search.typedSearch.sort(illegalResults, search.sortCol, search.reverseSort);
+		}
+		search.results = results.concat([['header', label]], illegalResults);
+	}
+
+	function patchSearch(editor) {
+		var search = editor.search;
+		if (!search || search.customBalanceLegalityBuckets) return;
+		var originalFind = search.find.bind(search);
+		search.find = function (query) {
+			var changed = originalFind(query);
+			decorateLegalityBuckets(editor, search);
+			return changed;
+		};
+		search.customBalanceLegalityBuckets = true;
+
+		if (search.results) {
+			var query = search.query || '';
+			search.results = null;
+			search.find(query);
+			if (search.resultsComponent && typeof search.resultsComponent.forceUpdate === 'function') {
+				search.resultsComponent.forceUpdate();
+			}
+		}
+	}
+
 	function render(editor, set) {
 		if (panel) panel.remove();
 		var host = document.querySelector('.team-focus-editor .set-form') || document.querySelector('.team-focus-editor');
@@ -211,6 +260,7 @@
 			if (panel) panel.remove(); panel = null; lastEditor = null; lastSet = null; return;
 		}
 		editor.defaultLevel = 50;
+		patchSearch(editor);
 		var focus = editor.innerFocus;
 		var set = focus && editor.sets && editor.sets[focus.setIndex];
 		if (!set) { if (panel) panel.remove(); panel = null; lastSet = null; return; }
