@@ -8,6 +8,15 @@
 		'Grass', 'Ground', 'Ice', 'Normal', 'Poison', 'Psychic', 'Rock', 'Steel', 'Water'
 	];
 	var STATS = [['hp', 'HP'], ['atk', 'Atk'], ['def', 'Def'], ['spa', 'SpA'], ['spd', 'SpD'], ['spe', 'Spe']];
+	var NATURES = [
+		['Hardy', '', ''], ['Lonely', 'atk', 'def'], ['Brave', 'atk', 'spe'], ['Adamant', 'atk', 'spa'], ['Naughty', 'atk', 'spd'],
+		['Bold', 'def', 'atk'], ['Docile', '', ''], ['Relaxed', 'def', 'spe'], ['Impish', 'def', 'spa'], ['Lax', 'def', 'spd'],
+		['Timid', 'spe', 'atk'], ['Hasty', 'spe', 'def'], ['Serious', '', ''], ['Jolly', 'spe', 'spa'], ['Naive', 'spe', 'spd'],
+		['Modest', 'spa', 'atk'], ['Mild', 'spa', 'def'], ['Quiet', 'spa', 'spe'], ['Bashful', '', ''], ['Rash', 'spa', 'spd'],
+		['Calm', 'spd', 'atk'], ['Gentle', 'spd', 'def'], ['Sassy', 'spd', 'spe'], ['Careful', 'spd', 'spa'], ['Quirky', '', '']
+	];
+	var NATURE_MAP = Object.create(null);
+	NATURES.forEach(function (entry) { NATURE_MAP[entry[0]] = { plus: entry[1], minus: entry[2] }; });
 	var panel = null;
 	var lastEditor = null;
 	var lastSet = null;
@@ -15,7 +24,11 @@
 	function blankData() {
 		return { type1: '', type2: 'default', baseStats: {} };
 	}
+	function normalizeCode(value) {
+		return String(value || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+	}
 	function decode(value) {
+		value = normalizeCode(value);
 		if (!value || value.slice(0, 3) !== PREFIX) return blankData();
 		var payload = value.slice(3);
 		if (!/^\d{22}$/.test(payload)) return blankData();
@@ -50,6 +63,9 @@
 	function getIV(set, stat) {
 		return set.ivs && set.ivs[stat] !== undefined ? Number(set.ivs[stat]) : 31;
 	}
+	function totalSP(set) {
+		return STATS.reduce(function (sum, entry) { return sum + getSP(set, entry[0]); }, 0);
+	}
 	function effectiveBaseStats(editor, set, data) {
 		var species = speciesFor(editor, set);
 		var result = {};
@@ -66,8 +82,7 @@
 		return [type1, type2].filter(Boolean);
 	}
 	function natureModifier(set, stat) {
-		var table = window.BattleNatures || {};
-		var nature = table[set.nature] || null;
+		var nature = NATURE_MAP[set.nature || 'Serious'];
 		if (!nature) return 1;
 		if (nature.plus === stat) return 1.1;
 		if (nature.minus === stat) return 0.9;
@@ -116,6 +131,16 @@
 		el.value = value;
 		return el;
 	}
+	function natureSelect(value) {
+		var el = document.createElement('select');
+		el.className = 'select';
+		NATURES.forEach(function (entry) {
+			var option = document.createElement('option');
+			option.value = entry[0]; option.textContent = entry[0]; el.appendChild(option);
+		});
+		el.value = value || 'Serious';
+		return el;
+	}
 	function cell(text) {
 		var el = document.createElement('td');
 		if (text !== undefined) el.textContent = String(text);
@@ -136,8 +161,6 @@
 			}
 		}
 
-		// Typed text searches already mark illegal matches individually. The extra
-		// bucket is for the normal browsing view so legal options stay first.
 		if (search.query) return;
 		var illegal = search.typedSearch.baseIllegalResults;
 		if (!illegal || !illegal.length) return;
@@ -171,6 +194,35 @@
 		}
 	}
 
+	function patchNativeUI(editor, set, data) {
+		var types = effectiveTypes(editor, set, data);
+		var typeHost = document.querySelector('.team-focus-editor .set-details .border-collapse > div');
+		if (typeHost) {
+			if (window.Dex && typeof window.Dex.getTypeIcon === 'function') {
+				typeHost.innerHTML = types.map(function (type) { return window.Dex.getTypeIcon(type) + ' '; }).join('');
+			} else {
+				typeHost.textContent = types.join(' / ');
+			}
+			typeHost.title = 'Custom Balance native typing: ' + types.join(' / ');
+		}
+
+		var statsButton = document.querySelector('.team-focus-editor .set-stats button[name="stats"]');
+		if (statsButton) {
+			statsButton.innerHTML = '<strong>' + totalSP(set) + ' / 66 SP</strong><br><small>Custom Balance</small>';
+			statsButton.title = 'Edit Stat Points, IVs, base stats, and Nature in the Custom Balance panel.';
+		}
+
+		var nativeStats = document.querySelector('.team-focus-editor [role="dialog"][aria-label="Stats"]');
+		if (nativeStats) {
+			nativeStats.style.display = 'none';
+			nativeStats.setAttribute('aria-hidden', 'true');
+		}
+		document.querySelectorAll('.team-focus-editor input[name^="ev-"]').forEach(function (input) {
+			input.disabled = true;
+			input.title = 'Use the Custom Balance Stat Point controls above.';
+		});
+	}
+
 	function render(editor, set) {
 		if (panel) panel.remove();
 		var host = document.querySelector('.team-focus-editor .set-form') || document.querySelector('.team-focus-editor');
@@ -179,7 +231,7 @@
 		var data = decode(set.pokeball);
 		var species = speciesFor(editor, set);
 		var bases = effectiveBaseStats(editor, set, data);
-		var totalSP = STATS.reduce(function (sum, entry) { return sum + getSP(set, entry[0]); }, 0);
+		var spTotal = totalSP(set);
 
 		panel = document.createElement('div');
 		panel.id = 'custom-balance-panel';
@@ -187,7 +239,7 @@
 		panel.style.margin = '8px';
 		panel.style.maxWidth = '620px';
 		panel.innerHTML = '<h3 style="margin-top:0">Custom Balance</h3>' +
-			'<p><small>Blank base stats and types use the species default. Stat Points use Champions mechanics: 32 max per stat, 66 total.</small></p>';
+			'<p><small><strong>Changes save automatically.</strong> Blank base stats and types use the species default. Stat Points use Champions mechanics: 32 max per stat, 66 total.</small></p>';
 
 		var controls = document.createElement('div');
 		controls.style.display = 'flex'; controls.style.flexWrap = 'wrap'; controls.style.gap = '10px 18px';
@@ -198,6 +250,15 @@
 			set.level = n === 50 ? undefined : n; save(editor); render(editor, set);
 		};
 		levelLabel.appendChild(level); controls.appendChild(levelLabel);
+
+		var natureLabel = document.createElement('label'); natureLabel.textContent = 'Nature: ';
+		var nature = natureSelect(set.nature || 'Serious');
+		nature.onchange = function () {
+			if (nature.value === 'Serious') delete set.nature;
+			else set.nature = nature.value;
+			save(editor); render(editor, set);
+		};
+		natureLabel.appendChild(nature); controls.appendChild(natureLabel);
 
 		var t1Label = document.createElement('label'); t1Label.textContent = 'Type 1: ';
 		var t1 = typeSelect(data.type1, false);
@@ -232,7 +293,8 @@
 			var spCell = cell(), sp = numInput(getSP(set, stat), 0, 32, '48px');
 			sp.onchange = function () {
 				var old = getSP(set, stat), n = Math.max(0, Math.min(32, Number(sp.value) || 0));
-				var others = totalSP - old; n = Math.min(n, 66 - others);
+				var others = spTotal - old;
+				n = Math.min(n, Math.max(0, 66 - others));
 				set.evs = set.evs || {}; set.evs[stat] = n; save(editor); render(editor, set);
 			};
 			spCell.appendChild(sp); row.appendChild(spCell);
@@ -248,10 +310,22 @@
 		});
 		panel.appendChild(table);
 
-		var total = document.createElement('p'); total.innerHTML = '<strong>Stat Points: ' + totalSP + ' / 66</strong>'; panel.appendChild(total);
+		var total = document.createElement('p');
+		total.innerHTML = '<strong>Stat Points: ' + spTotal + ' / 66</strong>';
+		if (spTotal > 66) {
+			total.style.color = '#b00020';
+			total.innerHTML += ' <small>Reduce this to 66 or less before validating.</small>';
+		}
+		panel.appendChild(total);
+
+		var buttons = document.createElement('div'); buttons.style.display = 'flex'; buttons.style.flexWrap = 'wrap'; buttons.style.gap = '6px';
 		var reset = document.createElement('button'); reset.className = 'button'; reset.textContent = 'Reset custom typing and base stats';
-		reset.onclick = function () { set.pokeball = undefined; save(editor); render(editor, set); }; panel.appendChild(reset);
+		reset.onclick = function () { set.pokeball = undefined; save(editor); render(editor, set); }; buttons.appendChild(reset);
+		var resetSP = document.createElement('button'); resetSP.className = 'button'; resetSP.textContent = 'Reset Stat Points';
+		resetSP.onclick = function () { set.evs = undefined; save(editor); render(editor, set); }; buttons.appendChild(resetSP);
+		panel.appendChild(buttons);
 		host.insertBefore(panel, host.firstChild);
+		patchNativeUI(editor, set, data);
 	}
 
 	function tick() {
@@ -267,6 +341,8 @@
 		if (editor !== lastEditor || set !== lastSet || !document.getElementById('custom-balance-panel')) {
 			lastEditor = editor; lastSet = set; render(editor, set);
 		}
+		var data = decode(set.pokeball);
+		patchNativeUI(editor, set, data);
 		var level = document.querySelector('.team-focus-editor input[name="level"]');
 		if (level) { level.max = '50'; level.placeholder = '50'; }
 	}
