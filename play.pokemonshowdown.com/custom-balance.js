@@ -338,11 +338,22 @@
 		var focus = editor.innerFocus;
 		var set = focus && editor.sets && editor.sets[focus.setIndex];
 		if (!set) { if (panel) panel.remove(); panel = null; lastSet = null; return; }
+
+		var data = decode(set.pokeball);
+		patchNativeUI(editor, set, data);
+
+		var searchOpen = focus && ['pokemon', 'ability', 'item', 'move'].includes(focus.type);
+		if (searchOpen) {
+			if (panel) panel.remove();
+			panel = null;
+			lastEditor = editor;
+			lastSet = set;
+			return;
+		}
+
 		if (editor !== lastEditor || set !== lastSet || !document.getElementById('custom-balance-panel')) {
 			lastEditor = editor; lastSet = set; render(editor, set);
 		}
-		var data = decode(set.pokeball);
-		patchNativeUI(editor, set, data);
 		var level = document.querySelector('.team-focus-editor input[name="level"]');
 		if (level) { level.max = '50'; level.placeholder = '50'; }
 	}
