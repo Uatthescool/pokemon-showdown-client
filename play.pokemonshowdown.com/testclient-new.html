@@ -112,6 +112,22 @@
 	<script nomodule src="js/lib/sockjs-1.4.0-nwjsfix.min.js"></script>
 	<script src="js/client-connection.js"></script>
 	<script> Net.defaultRoute = 'https://play.pokemonshowdown.com'; </script>
+	<script>
+		(function () {
+			if (typeof POKEMON_SHOWDOWN_TESTCLIENT_KEY === 'string') return;
+			var host = PS.server.host || '';
+			var tailscaleHost = /^100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./.test(host);
+			if (host !== 'localhost' && host !== '127.0.0.1' && !tailscaleHost) return;
+			var originalChangeName = PS.user.changeName.bind(PS.user);
+			PS.user.changeName = function (name) {
+				if (!Config.testclient) return originalChangeName(name);
+				name = this.validateName(name);
+				this.loggingIn = name;
+				this.update(null);
+				PS.send('/trn ' + name);
+			};
+		})();
+	</script>
 
 	<script src="js/lib/preact.min.js"></script>
 	<script src="js/panels.js"></script>
@@ -158,6 +174,7 @@
 	<script src="js/battle-searchresults.js?"></script>
 	<script src="js/battle-team-editor.js?"></script>
 	<script src="js/panel-teambuilder-team.js?"></script>
+	<script src="custom-balance.js"></script>
 
 	<script src="https://play.pokemonshowdown.com/data/pokedex-mini.js"></script>
 	<script src="https://play.pokemonshowdown.com/data/pokedex-mini-bw.js"></script>
